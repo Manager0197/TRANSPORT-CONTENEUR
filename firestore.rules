@@ -1,0 +1,120 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "management250197@gmail.com" && request.auth.token.email_verified == true)); // Default admin
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    
+    function isValidDossier(data) {
+      return hasRequiredFields(['numeroBL', 'statut']) &&
+             data.numeroBL is string && data.numeroBL.size() > 0 && data.numeroBL.size() < 50 &&
+             data.statut in ['en_cours', 'cloture'] &&
+             (!('nbConteneurs' in data) || (data.nbConteneurs is number && data.nbConteneurs >= 0)) &&
+             (!('prixContrat' in data) || (data.prixContrat is number && data.prixContrat >= 0));
+    }
+
+    function isValidConteneur(data) {
+      return hasRequiredFields(['numero', 'dossierId']) &&
+             data.numero is string && data.numero.size() > 0 && data.numero.size() < 50 &&
+             data.dossierId is string && data.dossierId.size() < 100;
+    }
+
+    function isValidCamion(data) {
+      return hasRequiredFields(['numero', 'statut']) &&
+             data.numero is string && data.numero.size() > 0 && data.numero.size() < 50 &&
+             data.statut in ['actif', 'inactif'];
+    }
+
+    function isValidChargement(data) {
+      return hasRequiredFields(['dossierId', 'conteneurId', 'typeTransporteur', 'statutPaiement']) &&
+             data.dossierId is string && data.dossierId.size() < 100 &&
+             data.conteneurId is string && data.conteneurId.size() < 100 &&
+             data.typeTransporteur in ['interne', 'externe'] &&
+             data.statutPaiement in ['non_paye', 'paye'] &&
+             (!('avance' in data) || (data.avance is number && data.avance >= 0)) &&
+             (!('prixTotal' in data) || (data.prixTotal is number && data.prixTotal >= 0)) &&
+             (!('solde' in data) || (data.solde is number && data.solde >= 0)) &&
+             (!('nomTransporteurExterne' in data) || (data.nomTransporteurExterne is string && data.nomTransporteurExterne.size() < 100));
+    }
+
+    function isValidPartenaire(data) {
+      return hasRequiredFields(['nom']) &&
+             data.nom is string && data.nom.size() > 0 && data.nom.size() < 100;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+    
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    match /dossiers/{dossierId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidDossier(request.resource.data);
+      allow update: if isAuthenticated() && isValidDossier(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    
+    match /conteneurs/{conteneurId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidConteneur(request.resource.data);
+      allow update: if isAuthenticated() && isValidConteneur(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    
+    match /camions/{camionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidCamion(request.resource.data);
+      allow update: if isAuthenticated() && isValidCamion(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    
+    match /chargements/{chargementId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidChargement(request.resource.data);
+      allow update: if isAuthenticated() && isValidChargement(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /partenaires/{partenaireId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidPartenaire(request.resource.data);
+      allow update: if isAuthenticated() && isValidPartenaire(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    
+    match /config/global {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+  }
+}

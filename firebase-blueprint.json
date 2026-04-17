@@ -1,0 +1,95 @@
+{
+  "entities": {
+    "DossierBL": {
+      "title": "DossierBL",
+      "description": "Un dossier de transport contenant plusieurs conteneurs.",
+      "type": "object",
+      "properties": {
+        "numeroBL": { "type": "string", "description": "Numéro du dossier BL" },
+        "dateCreation": { "type": "string", "format": "date-time", "description": "Date de création du dossier" },
+        "statut": { "type": "string", "enum": ["en_cours", "cloture"], "description": "Statut du dossier" },
+        "nbConteneurs": { "type": "number", "description": "Nombre de conteneurs dans le dossier (EVP)" },
+        "prixContrat": { "type": "number", "description": "Montant total facturé au client" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["numeroBL", "dateCreation", "statut", "createdAt", "updatedAt"]
+    },
+    "Conteneur": {
+      "title": "Conteneur",
+      "description": "Un conteneur lié à un dossier BL.",
+      "type": "object",
+      "properties": {
+        "numero": { "type": "string", "description": "Numéro du conteneur" },
+        "dossierId": { "type": "string", "description": "ID du dossier BL parent" },
+        "type": { "type": "string", "description": "Type de conteneur (ex: 20', 40')" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["numero", "dossierId", "createdAt"]
+    },
+    "CamionInterne": {
+      "title": "CamionInterne",
+      "description": "Un camion de la flotte interne.",
+      "type": "object",
+      "properties": {
+        "numero": { "type": "string", "description": "Numéro/Plaque du camion" },
+        "conducteur": { "type": "string", "description": "Nom du conducteur" },
+        "statut": { "type": "string", "enum": ["actif", "inactif"], "description": "Statut du camion" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["numero", "statut", "createdAt"]
+    },
+    "Chargement": {
+      "title": "Chargement",
+      "description": "L'affectation d'un conteneur à un transporteur pour un dossier donné.",
+      "type": "object",
+      "properties": {
+        "dossierId": { "type": "string", "description": "ID du dossier BL" },
+        "conteneurId": { "type": "string", "description": "ID du conteneur" },
+        "typeTransporteur": { "type": "string", "enum": ["interne", "externe"], "description": "Type de transporteur" },
+        "camionId": { "type": "string", "description": "ID du camion interne (si interne)" },
+        "nomTransporteurExterne": { "type": "string", "description": "Nom du transporteur externe (si externe)" },
+        "avance": { "type": "number", "description": "Montant de l'avance perçue" },
+        "prixTotal": { "type": "number", "description": "Prix total convenu" },
+        "solde": { "type": "number", "description": "Solde restant à payer" },
+        "statutPaiement": { "type": "string", "enum": ["non_paye", "paye"], "description": "Statut du paiement" },
+        "dateChargement": { "type": "string", "format": "date-time", "description": "Date du chargement" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["dossierId", "conteneurId", "typeTransporteur", "avance", "prixTotal", "solde", "statutPaiement", "dateChargement", "createdAt", "updatedAt"]
+    },
+    "Partenaire": {
+      "title": "Partenaire",
+      "description": "Un partenaire de transport externe.",
+      "type": "object",
+      "properties": {
+        "nom": { "type": "string", "description": "Nom de l'entreprise partenaire" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["nom", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/dossiers/{dossierId}": {
+      "schema": "DossierBL",
+      "description": "Collection des dossiers BL"
+    },
+    "/conteneurs/{conteneurId}": {
+      "schema": "Conteneur",
+      "description": "Collection des conteneurs"
+    },
+    "/camions/{camionId}": {
+      "schema": "CamionInterne",
+      "description": "Collection des camions internes"
+    },
+    "/chargements/{chargementId}": {
+      "schema": "Chargement",
+      "description": "Collection des chargements"
+    },
+    "/partenaires/{partenaireId}": {
+      "schema": "Partenaire",
+      "description": "Collection des partenaires externes"
+    }
+  }
+}

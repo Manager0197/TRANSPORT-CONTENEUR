@@ -1,0 +1,6 @@
+{
+  "name": "Transport Conteneur App",
+  "description": "Application Web & Mobile de gestion des dossiers BL, chargements de conteneurs et suivi financier des transporteurs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
