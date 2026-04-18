@@ -186,10 +186,7 @@ export default function Camions() {
             onClick={() => setShowNew(true)}
             className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl flex items-center justify-center gap-3 font-black uppercase text-xs tracking-widest transition-all active:scale-95 shadow-lg shadow-blue-500/20"
           >
-            <Plus className="w-5 h-5" /> Saisie matricielle
-          </button>
-          <button className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-white px-8 py-4 rounded-2xl flex items-center justify-center gap-3 font-black uppercase text-xs tracking-widest transition-all">
-            Ingestion groupée
+            <Plus className="w-5 h-5" /> Ajouter un Camion
           </button>
         </div>
       </div>

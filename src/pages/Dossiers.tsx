@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { collection, onSnapshot, addDoc, updateDoc, doc, query, orderBy, where, deleteDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { Plus, ChevronDown, ChevronUp, Truck, FolderOpen, Search, Trash2, Edit2, Check, X as XIcon } from "lucide-react";
+import { Plus, ChevronDown, ChevronUp, Truck, FolderOpen, Search, Trash2, Edit2, Check, X as XIcon, Box } from "lucide-react";
 import { handleFirestoreError, OperationType } from "../lib/firestore-error";
 import ConfirmModal from "../components/ConfirmModal";
 
@@ -11,7 +11,26 @@ export default function Dossiers() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showNew, setShowNew] = useState(false);
-  const [newDossier, setNewDossier] = useState({ numeroBL: "", nbConteneurs: 1, prixContrat: 0, typeTransport: "interne" });
+  const [newDossier, setNewDossier] = useState<{numeroBL: string, nbConteneurs: number | string, prixContrat: number | string}>({ numeroBL: "", nbConteneurs: 1, prixContrat: "" });
+  const [newConteneurs, setNewConteneurs] = useState([{ id: Math.random(), numero: '', type: "20'", transport: 'interne' }]);
+
+  const handleNbConteneursChange = (valStr: string) => {
+    if (valStr === "") {
+      setNewDossier(prev => ({ ...prev, nbConteneurs: "" }));
+      return;
+    }
+    let val = parseInt(valStr);
+    if (isNaN(val) || val < 1) val = 1;
+    setNewDossier(prev => ({ ...prev, nbConteneurs: val }));
+    setNewConteneurs(prev => {
+      const arr = [...prev];
+      while (arr.length < val) {
+        arr.push({ id: Math.random(), numero: '', type: "20'", transport: 'interne' });
+      }
+      if (arr.length > val) arr.length = val;
+      return arr;
+    });
+  };
 
   useEffect(() => {
     const q = query(collection(db, "dossiers"), orderBy("createdAt", "desc"));
@@ -43,18 +62,29 @@ export default function Dossiers() {
     if (!newDossier.numeroBL) return;
 
     try {
-      await addDoc(collection(db, "dossiers"), {
+      const docRef = await addDoc(collection(db, "dossiers"), {
         numeroBL: newDossier.numeroBL,
-        nbConteneurs: newDossier.nbConteneurs,
-        prixContrat: newDossier.prixContrat,
-        typeTransport: newDossier.typeTransport,
+        nbConteneurs: newDossier.nbConteneurs || 1,
+        prixContrat: newDossier.prixContrat || 0,
         statut: "en_cours",
         dateCreation: new Date().toISOString(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
+
+      const promises = newConteneurs.map(c => addDoc(collection(db, "conteneurs"), {
+        dossierId: docRef.id,
+        numero: c.numero || "EN ATTENTE",
+        type: c.type,
+        typeTransport: c.transport,
+        statut: "en_attente",
+        createdAt: new Date().toISOString()
+      }));
+      await Promise.all(promises);
+
       setShowNew(false);
-      setNewDossier({ numeroBL: "", nbConteneurs: 1, prixContrat: 0, typeTransport: "interne" });
+      setNewDossier({ numeroBL: "", nbConteneurs: 1, prixContrat: "" });
+      setNewConteneurs([{ id: Math.random(), numero: '', type: "20'", transport: 'interne' }]);
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, "dossiers");
     }
@@ -74,10 +104,7 @@ export default function Dossiers() {
             onClick={() => setShowNew(true)}
             className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl flex items-center justify-center gap-2 font-bold shadow-lg shadow-blue-200 transition-all active:scale-95"
           >
-            <Plus className="w-5 h-5" /> Saisie matricielle
-          </button>
-          <button className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl flex items-center justify-center gap-2 font-bold transition-all active:scale-95">
-             Ingestion groupée
+            <Plus className="w-5 h-5" /> Nouveau Dossier
           </button>
         </div>
       </div>
@@ -111,29 +138,36 @@ export default function Dossiers() {
       </div>
 
       {showNew && (
-        <form onSubmit={handleCreate} className="bg-slate-900 p-6 rounded-2xl shadow-xl flex flex-col gap-6 animate-in fade-in slide-in-from-top-4 duration-300">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <form onSubmit={handleCreate} className="bg-slate-900 p-6 sm:p-8 rounded-[2rem] shadow-xl flex flex-col gap-8 animate-in fade-in slide-in-from-top-4 duration-300 border border-slate-800">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="w-full">
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Saisie matricielle (N° BL)</label>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Numéro de BL</label>
               <input 
                 type="text" 
                 placeholder="Ex: #2024-045"
                 required
-                className="w-full bg-slate-800 text-white border-slate-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-600"
+                className="w-full bg-slate-950 text-white border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-600 font-bold"
                 value={newDossier.numeroBL}
                 onChange={e => setNewDossier({...newDossier, numeroBL: e.target.value})}
               />
             </div>
-            <div className="w-full">
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Ingestion groupée (EVP)</label>
+            <div className="w-full relative">
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Nombre de Conteneurs (Lignes)</label>
               <input 
                 type="number" 
                 min="1"
+                list="nb-conteneurs-list"
                 required
-                className="w-full bg-slate-800 text-white border-slate-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                value={Number.isNaN(newDossier.nbConteneurs) ? "" : newDossier.nbConteneurs}
-                onChange={e => setNewDossier({...newDossier, nbConteneurs: parseInt(e.target.value)})}
+                className="w-full bg-slate-950 text-white border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold"
+                value={newDossier.nbConteneurs}
+                onFocus={(e) => e.target.select()}
+                onChange={e => handleNbConteneursChange(e.target.value)}
               />
+              <datalist id="nb-conteneurs-list">
+                {Array.from({ length: 40 }, (_, i) => i + 1).map(n => (
+                  <option key={n} value={n} />
+                ))}
+              </datalist>
             </div>
             <div className="w-full">
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Montant Contrat Client</label>
@@ -141,30 +175,86 @@ export default function Dossiers() {
                 type="number" 
                 min="0"
                 required
-                className="w-full bg-slate-800 text-white border-slate-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                className="w-full bg-slate-950 text-white border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold"
                 value={newDossier.prixContrat}
-                onChange={e => setNewDossier({...newDossier, prixContrat: parseInt(e.target.value) || 0})}
+                onFocus={(e) => e.target.select()}
+                onChange={e => setNewDossier({...newDossier, prixContrat: e.target.value === "" ? "" : parseInt(e.target.value)})}
               />
             </div>
-            <div className="w-full">
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Mode Logistique cible</label>
-              <select 
-                className="w-full bg-slate-800 text-white border border-slate-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                value={newDossier.typeTransport}
-                onChange={e => setNewDossier({...newDossier, typeTransport: e.target.value})}
-              >
-                <option value="interne text-emerald-400">Flotte Interne (Camion + Chauffeur)</option>
-                <option value="externe text-amber-400">Sous-traitance (Prestation Tiers)</option>
-                <option value="mixte text-blue-400">Allocation Hybride / Mixte</option>
-              </select>
+          </div>
+
+          <div className="w-full">
+            <h4 className="text-sm font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Box className="w-4 h-4 text-blue-500" /> Grille de saisie des conteneurs
+            </h4>
+            <div className="bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 overflow-x-auto">
+              <table className="w-full text-left text-sm text-slate-300 min-w-[700px]">
+                <thead className="bg-slate-900 border-b border-slate-800 text-xs uppercase font-bold text-slate-500">
+                  <tr>
+                    <th className="px-4 py-4 w-16 text-center">N°</th>
+                    <th className="px-4 py-4">ID Conteneur (Optionnel)</th>
+                    <th className="px-4 py-4 w-40">Type (EVP)</th>
+                    <th className="px-4 py-4 w-56">Transporteur</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/50">
+                  {newConteneurs.map((c, idx) => (
+                    <tr key={c.id} className="hover:bg-slate-900/50 transition-colors">
+                      <td className="px-4 py-3 text-center font-black text-slate-500">{idx + 1}</td>
+                      <td className="px-4 py-3">
+                        <input 
+                          type="text" 
+                          placeholder="Ex: TGHU1234567"
+                          className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2.5 text-white outline-none transition-all uppercase placeholder:normal-case placeholder:text-slate-600 font-mono text-sm"
+                          value={c.numero}
+                          onChange={e => {
+                            const updated = [...newConteneurs];
+                            updated[idx].numero = e.target.value.toUpperCase();
+                            setNewConteneurs(updated);
+                          }}
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <select 
+                          className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2.5 text-white outline-none transition-all text-sm font-bold"
+                          value={c.type}
+                          onChange={e => {
+                            const updated = [...newConteneurs];
+                            updated[idx].type = e.target.value;
+                            setNewConteneurs(updated);
+                          }}
+                        >
+                          <option value="20'">20 Pieds</option>
+                          <option value="40'">40 Pieds</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        <select 
+                          className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2.5 text-white outline-none transition-all text-sm font-bold"
+                          value={c.transport}
+                          onChange={e => {
+                            const updated = [...newConteneurs];
+                            updated[idx].transport = e.target.value;
+                            setNewConteneurs(updated);
+                          }}
+                        >
+                          <option value="interne">Interne (Flotte)</option>
+                          <option value="externe">Externe (Prestataire)</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
-          <div className="flex justify-end gap-3 pt-2 text-sm font-bold">
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800 text-sm font-bold">
             <button type="button" onClick={() => setShowNew(false)} className="px-6 py-3 text-slate-400 hover:text-white transition-colors">
               Annuler
             </button>
             <button type="submit" className="bg-blue-600 text-white px-10 py-3 rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/20 active:scale-95 transition-all">
-              Valider l'ouverture
+              Créer le dossier et les unités
             </button>
           </div>
         </form>

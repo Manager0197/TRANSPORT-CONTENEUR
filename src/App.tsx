@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
 import { LayoutDashboard, FolderOpen, Truck, DollarSign, FileBarChart, Menu, X, LogOut, Box, Moon, Sun, ShieldCheck } from "lucide-react";
 import { cn } from "./lib/utils";
