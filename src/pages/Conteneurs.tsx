@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { collection, onSnapshot, query, orderBy, addDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, addDoc, deleteDoc, doc } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { Search, Box, Truck, FolderOpen, Calendar, Plus, X } from "lucide-react";
+import { Search, Box, Truck, FolderOpen, Calendar, Plus, X, Trash2 } from "lucide-react";
 import { handleFirestoreError, OperationType } from "../lib/firestore-error";
 import { cn } from "../lib/utils";
+import ConfirmModal from "../components/ConfirmModal";
 
 export default function Conteneurs() {
   const [conteneurs, setConteneurs] = useState<any[]>([]);
@@ -12,6 +13,7 @@ export default function Conteneurs() {
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [showModal, setShowModal] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     // Fetch all containers
@@ -58,6 +60,16 @@ export default function Conteneurs() {
       other: conteneurs.filter(c => c.type !== "20'" && c.type !== "40'").length
     };
   }, [conteneurs]);
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    try {
+      await deleteDoc(doc(db, "conteneurs", deleteId));
+      setDeleteId(null);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `conteneurs/${deleteId}`);
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -112,12 +124,13 @@ export default function Conteneurs() {
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left">
             <thead>
-              <tr className="border-b border-slate-100 dark:border-slate-800">
-                <th className="pb-6 pt-2 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest px-4">Unité / Matricule</th>
-                <th className="pb-6 pt-2 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest px-4">Dossier BL Associé</th>
-                <th className="pb-6 pt-2 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest px-4">Vecteur Logistique</th>
-                <th className="pb-6 pt-2 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest px-4 text-right">Statut Expédition</th>
-              </tr>
+                <tr className="border-b border-slate-100 dark:border-slate-800">
+                  <th className="pb-6 pt-2 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest px-4">Unité / Matricule</th>
+                  <th className="pb-6 pt-2 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest px-4">Dossier BL Associé</th>
+                  <th className="pb-6 pt-2 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest px-4">Vecteur Logistique</th>
+                  <th className="pb-6 pt-2 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest px-4 text-center">Statut Expédition</th>
+                  <th className="pb-6 pt-2 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest px-4 text-right pr-6">Action</th>
+                </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
               {filteredConteneurs.map(c => {
@@ -153,13 +166,22 @@ export default function Conteneurs() {
                         <span className="text-slate-400 dark:text-slate-600 font-bold text-[10px] uppercase tracking-widest">En attente d'engagement</span>
                       )}
                     </td>
-                    <td className="py-6 px-4 text-right">
+                    <td className="py-6 px-4 text-center">
                        <span className={cn(
                          "px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm",
                          chargement ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-500'
                        )}>
-                         {chargement ? 'EN ROTATION' : 'DISPONIBLE'}
+                         {chargement ? 'EN COURS' : 'DISPONIBLE'}
                        </span>
+                    </td>
+                    <td className="py-6 px-4 text-right pr-6">
+                       <button 
+                         onClick={() => setDeleteId(c.id)}
+                         className="p-3 text-rose-500 hover:bg-rose-500 hover:text-white border border-rose-500/10 rounded-xl transition-all shadow-sm group/del"
+                         title="Retirer"
+                       >
+                         <Trash2 className="w-5 h-5 transition-transform group-hover/del:scale-110" />
+                       </button>
                     </td>
                   </tr>
                 );
@@ -175,6 +197,15 @@ export default function Conteneurs() {
           </table>
         </div>
       </div>
+
+      <ConfirmModal 
+        isOpen={!!deleteId}
+        onClose={() => setDeleteId(null)}
+        onConfirm={handleDelete}
+        title="Retrait d'Unité Physique"
+        message="Attention : la suppression d'un conteneur du registre est irréversible. Notez que cela n'effacera pas le dossier BL associé, mais l'unité ne sera plus comptabilisée dans l'inventaire."
+        confirmText="Supprimer définitivement"
+      />
     </div>
   );
 }

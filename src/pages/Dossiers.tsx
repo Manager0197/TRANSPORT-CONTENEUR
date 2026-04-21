@@ -5,14 +5,25 @@ import { Plus, ChevronDown, ChevronUp, Truck, FolderOpen, Search, Trash2, Edit2,
 import { handleFirestoreError, OperationType } from "../lib/firestore-error";
 import ConfirmModal from "../components/ConfirmModal";
 
+import { useSettings } from "../hooks/useSettings";
+
 export default function Dossiers() {
+  const { settings } = useSettings();
   const [dossiers, setDossiers] = useState<any[]>([]);
   const [camions, setCamions] = useState<any[]>([]);
+  const [partenaires, setPartenaires] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showNew, setShowNew] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [newDossier, setNewDossier] = useState<{numeroBL: string, nbConteneurs: number | string, prixContrat: number | string}>({ numeroBL: "", nbConteneurs: 1, prixContrat: "" });
-  const [newConteneurs, setNewConteneurs] = useState([{ id: Math.random(), numero: '', type: "20'", transport: 'interne' }]);
+  const [newConteneurs, setNewConteneurs] = useState([{ id: Math.random(), numero: '', type: "20'", transport: 'interne', prix: 50000, avance: 0 }]);
+
+  const DEFAULT_PRICES: any = useMemo(() => ({
+    interne: { "20'": 50000, "40'": 90000 },
+    externe: { "20'": settings.prix20, "40'": settings.prix40 }
+  }), [settings]);
 
   const handleNbConteneursChange = (valStr: string) => {
     if (valStr === "") {
@@ -25,7 +36,14 @@ export default function Dossiers() {
     setNewConteneurs(prev => {
       const arr = [...prev];
       while (arr.length < val) {
-        arr.push({ id: Math.random(), numero: '', type: "20'", transport: 'interne' });
+        arr.push({ 
+          id: Math.random(), 
+          numero: '', 
+          type: "20'", 
+          transport: 'interne', 
+          prix: 50000, 
+          avance: 0 
+        });
       }
       if (arr.length > val) arr.length = val;
       return arr;
@@ -60,33 +78,65 @@ export default function Dossiers() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDossier.numeroBL) return;
+    setIsSaving(true);
+    setSaveSuccess(false);
 
     try {
       const docRef = await addDoc(collection(db, "dossiers"), {
         numeroBL: newDossier.numeroBL,
-        nbConteneurs: newDossier.nbConteneurs || 1,
-        prixContrat: newDossier.prixContrat || 0,
+        nbConteneurs: Number(newDossier.nbConteneurs) || 0,
+        prixContrat: Number(newDossier.prixContrat) || 0,
         statut: "en_cours",
         dateCreation: new Date().toISOString(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
 
-      const promises = newConteneurs.map(c => addDoc(collection(db, "conteneurs"), {
-        dossierId: docRef.id,
-        numero: c.numero || "EN ATTENTE",
-        type: c.type,
-        typeTransport: c.transport,
-        statut: "en_attente",
-        createdAt: new Date().toISOString()
-      }));
+      // Create units AND initiate chargement records
+      const promises = newConteneurs.map(async (c) => {
+        try {
+          const contRef = await addDoc(collection(db, "conteneurs"), {
+            dossierId: docRef.id,
+            numero: c.numero || "EN ATTENTE",
+            type: c.type,
+            typeTransport: c.transport,
+            statut: "en_attente",
+            createdAt: new Date().toISOString()
+          });
+
+          return await addDoc(collection(db, "chargements"), {
+            dossierId: docRef.id,
+            conteneurId: contRef.id,
+            numeroConteneur: c.numero || "EN ATTENTE",
+            typeTransporteur: c.transport,
+            prixTotal: Number(c.prix) || 0,
+            avance: Number(c.avance) || 0,
+            solde: (Number(c.prix) || 0) - (Number(c.avance) || 0),
+            statutPaiement: (Number(c.prix) - Number(c.avance)) <= 0 ? "paye" : "non_paye",
+            dateChargement: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        } catch (subErr) {
+          console.error("Erreur détaillée lors de la création d'un chargement/conteneur:", subErr);
+          throw subErr;
+        }
+      });
+
       await Promise.all(promises);
 
-      setShowNew(false);
-      setNewDossier({ numeroBL: "", nbConteneurs: 1, prixContrat: "" });
-      setNewConteneurs([{ id: Math.random(), numero: '', type: "20'", transport: 'interne' }]);
+      setSaveSuccess(true);
+      setTimeout(() => {
+        setShowNew(false);
+        setSaveSuccess(false);
+        setNewDossier({ numeroBL: "", nbConteneurs: 1, prixContrat: "" });
+        setNewConteneurs([{ id: Math.random(), numero: '', type: "20'", transport: 'interne', prix: 50, avance: 0 }]);
+      }, 1500);
     } catch (err) {
+      console.error("Erreur d'enregistrement:", err);
       handleFirestoreError(err, OperationType.CREATE, "dossiers");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -151,50 +201,60 @@ export default function Dossiers() {
                 onChange={e => setNewDossier({...newDossier, numeroBL: e.target.value})}
               />
             </div>
-            <div className="w-full relative">
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Nombre de Conteneurs (Lignes)</label>
+            <div className="w-full">
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest">Nombre de conteneurs</label>
+                <div className="text-[10px] font-black text-blue-500 uppercase">
+                  Volume: {newConteneurs.reduce((acc, c) => acc + (c.type === "40'" ? 2 : 1), 0)} EVP
+                </div>
+              </div>
               <input 
                 type="number" 
                 min="1"
-                list="nb-conteneurs-list"
                 required
                 className="w-full bg-slate-950 text-white border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold"
                 value={newDossier.nbConteneurs}
                 onFocus={(e) => e.target.select()}
                 onChange={e => handleNbConteneursChange(e.target.value)}
               />
-              <datalist id="nb-conteneurs-list">
-                {Array.from({ length: 40 }, (_, i) => i + 1).map(n => (
-                  <option key={n} value={n} />
-                ))}
-              </datalist>
             </div>
             <div className="w-full">
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Montant Contrat Client</label>
-              <input 
-                type="number" 
-                min="0"
-                required
-                className="w-full bg-slate-950 text-white border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold"
-                value={newDossier.prixContrat}
-                onFocus={(e) => e.target.select()}
-                onChange={e => setNewDossier({...newDossier, prixContrat: e.target.value === "" ? "" : parseInt(e.target.value)})}
-              />
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Vente (Prix BL Client)</label>
+              <div className="relative">
+                <input 
+                  type="number" 
+                  min="0"
+                  required
+                  placeholder="Montant facturé"
+                  className="w-full bg-slate-950 text-white border border-slate-800 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold"
+                  value={newDossier.prixContrat}
+                  onFocus={(e) => e.target.select()}
+                  onChange={e => setNewDossier({...newDossier, prixContrat: e.target.value === "" ? "" : parseInt(e.target.value)})}
+                />
+                <span className="absolute right-4 top-3.5 text-xs font-black text-slate-500 uppercase">{settings.devise}</span>
+              </div>
             </div>
           </div>
 
           <div className="w-full">
-            <h4 className="text-sm font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
-              <Box className="w-4 h-4 text-blue-500" /> Grille de saisie des conteneurs
-            </h4>
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                <Box className="w-4 h-4 text-blue-500" /> Planification des coûts par unité
+              </h4>
+              <div className="text-[10px] font-black uppercase tracking-widest px-3 py-1 bg-blue-600/10 text-blue-400 rounded-lg border border-blue-500/20">
+                Coût total prévu : {newConteneurs.reduce((acc, c) => acc + (Number(c.prix) || 0), 0).toLocaleString()} {settings.devise}
+              </div>
+            </div>
             <div className="bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 overflow-x-auto">
-              <table className="w-full text-left text-sm text-slate-300 min-w-[700px]">
+              <table className="w-full text-left text-sm text-slate-300 min-w-[900px]">
                 <thead className="bg-slate-900 border-b border-slate-800 text-xs uppercase font-bold text-slate-500">
                   <tr>
                     <th className="px-4 py-4 w-16 text-center">N°</th>
-                    <th className="px-4 py-4">ID Conteneur (Optionnel)</th>
-                    <th className="px-4 py-4 w-40">Type (EVP)</th>
-                    <th className="px-4 py-4 w-56">Transporteur</th>
+                    <th className="px-4 py-4">ID Conteneur</th>
+                    <th className="px-4 py-4 w-32">Taille</th>
+                    <th className="px-4 py-4 w-40">Transport</th>
+                    <th className="px-4 py-4 w-32">Montant ({settings.devise})</th>
+                    <th className="px-4 py-4 w-32">Avance ({settings.devise})</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/50">
@@ -204,8 +264,8 @@ export default function Dossiers() {
                       <td className="px-4 py-3">
                         <input 
                           type="text" 
-                          placeholder="Ex: TGHU1234567"
-                          className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2.5 text-white outline-none transition-all uppercase placeholder:normal-case placeholder:text-slate-600 font-mono text-sm"
+                          placeholder="ID / Scellé"
+                          className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2 text-white outline-none transition-all uppercase font-mono text-xs"
                           value={c.numero}
                           onChange={e => {
                             const updated = [...newConteneurs];
@@ -216,11 +276,13 @@ export default function Dossiers() {
                       </td>
                       <td className="px-4 py-3">
                         <select 
-                          className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2.5 text-white outline-none transition-all text-sm font-bold"
+                          className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-2 py-2 text-white outline-none transition-all text-xs font-bold"
                           value={c.type}
                           onChange={e => {
                             const updated = [...newConteneurs];
-                            updated[idx].type = e.target.value;
+                            const newType = e.target.value;
+                            updated[idx].type = newType;
+                            updated[idx].prix = DEFAULT_PRICES[updated[idx].transport][newType];
                             setNewConteneurs(updated);
                           }}
                         >
@@ -230,17 +292,45 @@ export default function Dossiers() {
                       </td>
                       <td className="px-4 py-3">
                         <select 
-                          className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2.5 text-white outline-none transition-all text-sm font-bold"
+                          className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-2 py-2 text-white outline-none transition-all text-xs font-bold"
                           value={c.transport}
                           onChange={e => {
                             const updated = [...newConteneurs];
-                            updated[idx].transport = e.target.value;
+                            const newTransport = e.target.value;
+                            updated[idx].transport = newTransport;
+                            updated[idx].prix = DEFAULT_PRICES[newTransport][updated[idx].type];
                             setNewConteneurs(updated);
                           }}
                         >
-                          <option value="interne">Interne (Flotte)</option>
-                          <option value="externe">Externe (Prestataire)</option>
+                          <option value="interne">Interne</option>
+                          <option value="externe">Externe</option>
                         </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        <input 
+                          type="number" 
+                          className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2 text-white outline-none transition-all font-bold text-xs"
+                          value={c.prix}
+                          onFocus={e => e.target.select()}
+                          onChange={e => {
+                            const updated = [...newConteneurs];
+                            updated[idx].prix = parseInt(e.target.value) || 0;
+                            setNewConteneurs(updated);
+                          }}
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <input 
+                          type="number" 
+                          className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2 text-white outline-none transition-all font-bold text-xs"
+                          value={c.avance}
+                          onFocus={e => e.target.select()}
+                          onChange={e => {
+                            const updated = [...newConteneurs];
+                            updated[idx].avance = parseInt(e.target.value) || 0;
+                            setNewConteneurs(updated);
+                          }}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -250,11 +340,21 @@ export default function Dossiers() {
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-800 text-sm font-bold">
-            <button type="button" onClick={() => setShowNew(false)} className="px-6 py-3 text-slate-400 hover:text-white transition-colors">
+            <button type="button" onClick={() => setShowNew(false)} className="px-6 py-3 text-slate-400 hover:text-white transition-colors" disabled={isSaving}>
               Annuler
             </button>
-            <button type="submit" className="bg-blue-600 text-white px-10 py-3 rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/20 active:scale-95 transition-all">
-              Créer le dossier et les unités
+            <button 
+              type="submit" 
+              disabled={isSaving}
+              className={`text-white px-10 py-3 rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-2 ${saveSuccess ? 'bg-emerald-500 shadow-emerald-500/20' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'}`}
+            >
+              {isSaving ? (
+                <>Enregistrement en cours...</>
+              ) : saveSuccess ? (
+                <><Check className="w-5 h-5" /> Dossier Créé !</>
+              ) : (
+                <>Créer le dossier et les unités</>
+              )}
             </button>
           </div>
         </form>
@@ -285,6 +385,7 @@ interface DossierCardProps {
 }
 
 function DossierCard({ dossier, camions }: DossierCardProps) {
+  const { settings } = useSettings();
   const [expanded, setExpanded] = useState(false);
   const [conteneurs, setConteneurs] = useState<any[]>([]);
   const [chargements, setChargements] = useState<any[]>([]);
@@ -363,11 +464,11 @@ function DossierCard({ dossier, camions }: DossierCardProps) {
 
   const stats = useMemo(() => {
     const totalChargements = chargements.length;
-    const totalPrix = chargements.reduce((sum, ch) => sum + (ch.prixTotal || 0), 0);
-    const totalAvance = chargements.reduce((sum, ch) => sum + (ch.avance || 0), 0);
-    const totalSolde = chargements.reduce((sum, ch) => sum + (ch.solde || 0), 0);
-    const progresses = (totalChargements / (dossier.nbConteneurs || 1)) * 100;
-    const marge = (dossier.prixContrat || 0) - totalPrix;
+    const totalPrix = chargements.reduce((sum, ch) => sum + (Number(ch.prixTotal) || 0), 0);
+    const totalAvance = chargements.reduce((sum, ch) => sum + (Number(ch.avance) || 0), 0);
+    const totalSolde = chargements.reduce((sum, ch) => sum + (Number(ch.solde) || 0), 0);
+    const progress = (totalChargements / (Number(dossier.nbConteneurs) || 1)) * 100;
+    const marge = (Number(dossier.prixContrat) || 0) - totalPrix;
     
     return {
       totalChargements,
@@ -375,8 +476,8 @@ function DossierCard({ dossier, camions }: DossierCardProps) {
       totalAvance,
       totalSolde,
       marge,
-      progress: Math.min(progresses, 100),
-      isComplete: totalChargements >= (dossier.nbConteneurs || 1)
+      progress: Math.min(progress, 100),
+      isComplete: totalChargements >= (Number(dossier.nbConteneurs) || 1)
     };
   }, [chargements, dossier.nbConteneurs, dossier.prixContrat]);
 
@@ -414,7 +515,7 @@ function DossierCard({ dossier, camions }: DossierCardProps) {
                     <h3 className="text-base sm:text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter truncate max-w-[120px] sm:max-w-none">BL #{dossier.numeroBL}</h3>
                     <button 
                       onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
-                      className="p-1.5 text-slate-400 hover:text-blue-500 transition-colors"
+                      className="p-1.5 text-blue-500 hover:bg-blue-500 hover:text-white rounded-lg transition-all"
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
@@ -433,7 +534,7 @@ function DossierCard({ dossier, camions }: DossierCardProps) {
                     onClick={e => e.stopPropagation()}
                     onChange={e => setEditForm({...editForm, nbConteneurs: parseInt(e.target.value)})}
                   />
-                ) : dossier.nbConteneurs} EVP
+                ) : dossier.nbConteneurs} conteneurs
               </p>
             </div>
           </div>
@@ -441,7 +542,7 @@ function DossierCard({ dossier, camions }: DossierCardProps) {
           <div className="flex items-center gap-4 sm:gap-6">
             <button 
               onClick={(e) => { e.stopPropagation(); setShowDeleteDossier(true); }}
-              className="p-3 text-slate-300 hover:text-rose-500 hover:bg-rose-500/5 rounded-xl transition-all"
+              className="p-3 text-rose-500 hover:bg-rose-500 hover:text-white border border-rose-500/20 rounded-xl transition-all shadow-sm"
               title="Supprimer définitivement"
             >
               <Trash2 className="w-5 h-5" />
@@ -475,23 +576,62 @@ function DossierCard({ dossier, camions }: DossierCardProps) {
 
       {expanded && (
         <div className="p-6 sm:p-10 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 transition-colors">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-              <p className="text-[10px] font-black text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-4">Coût Logistique</p>
-              <p className="text-2xl font-black text-slate-900 dark:text-white tabular-nums">{stats.totalPrix.toLocaleString()} F</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-10">
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative group/edit">
+              <p className="text-[10px] font-black text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-4">Vente Dossier (BL)</p>
+              {isEditing ? (
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number" 
+                    className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-lg px-2 py-1 text-base font-black text-slate-900 dark:text-white"
+                    value={editForm.prixContrat}
+                    onClick={e => e.stopPropagation()}
+                    onChange={e => setEditForm({...editForm, prixContrat: parseInt(e.target.value) || 0})}
+                  />
+                  <span className="text-[10px] font-bold text-slate-400">{settings.devise}</span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <p className="text-xl font-black text-slate-900 dark:text-white tabular-nums">{(Number(dossier.prixContrat) || 0).toLocaleString()} {settings.devise}</p>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
+                    className="p-1.5 text-blue-500 hover:bg-blue-500 hover:text-white rounded-lg transition-all"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm col-span-1">
+               <p className="text-[10px] font-black text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-4">Ouverture Dossier</p>
+               <p className="text-sm font-black text-slate-900 dark:text-white uppercase tabular-nums">
+                 {new Date(dossier.createdAt).toLocaleDateString('fr-FR')}
+               </p>
+               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                 à {new Date(dossier.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+               </p>
             </div>
             <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-              <p className="text-[10px] font-black text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-4">Engagements / Avances</p>
-              <p className="text-2xl font-black text-emerald-500 tabular-nums">{stats.totalAvance.toLocaleString()} F</p>
+              <p className="text-[10px] font-black text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-4">Dépenses Logistiques</p>
+              <p className="text-xl font-black text-rose-500 tabular-nums">{stats.totalPrix.toLocaleString()} {settings.devise}</p>
             </div>
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-              <p className="text-[10px] font-black text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-4">Solde Net Passif</p>
-              <p className="text-2xl font-black text-rose-500 tabular-nums">{stats.totalSolde.toLocaleString()} F</p>
+            <div 
+              className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm cursor-help hover:border-blue-500/50 transition-all group/avance"
+              title="Modifier les avances directement dans le tableau des chargements"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-[10px] font-black text-slate-500 dark:text-slate-500 uppercase tracking-widest">Avances Décaissées</p>
+                <div className="p-1 bg-blue-50 dark:bg-blue-900/30 rounded-md">
+                  <Edit2 className="w-2.5 h-2.5 text-blue-500" />
+                </div>
+              </div>
+              <p className="text-xl font-black text-blue-500 tabular-nums">{stats.totalAvance.toLocaleString()} {settings.devise}</p>
+              <p className="text-[8px] font-bold text-slate-400 uppercase mt-2 italic">Géré par transaction</p>
             </div>
             <div className="bg-slate-950 p-6 rounded-2xl border border-blue-500/20 shadow-lg shadow-blue-500/10">
-              <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-4">P&L par rotation (NET)</p>
-              <p className={`text-2xl font-black tabular-nums transition-colors ${stats.marge >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {stats.marge.toLocaleString()} F
+              <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-4">Profitabilité (NETTE)</p>
+              <p className={`text-xl font-black tabular-nums transition-colors ${stats.marge >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {stats.marge.toLocaleString()} {settings.devise}
               </p>
             </div>
           </div>
@@ -514,40 +654,104 @@ function DossierCard({ dossier, camions }: DossierCardProps) {
             </div>
           </div>
 
-          <div className="space-y-3">
-            {chargements.map(ch => (
-              <div key={ch.id} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex justify-between items-center group/item hover:border-blue-500/30 transition-all">
-                <div className="flex items-center gap-4">
-                  <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                    <Truck className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="font-black text-xs text-slate-900 dark:text-white uppercase tracking-tight">
-                      {ch.typeTransporteur === 'interne' ? `Camion: ${camions.find(c => c.id === ch.camionId)?.numero || ch.camionId}` : `Prestataire: ${ch.nomTransporteurExterne}`}
-                    </p>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">EVP ID: {ch.numeroConteneur || ch.conteneurId}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-6">
-                  <div className="text-right">
-                    <p className="font-black text-xs text-slate-900 dark:text-white tabular-nums">{ch.prixTotal?.toLocaleString()} F</p>
-                    <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Avance: {ch.avance?.toLocaleString()} F</p>
-                  </div>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteChargementData({ id: ch.id, conteneurId: ch.conteneurId });
-                    }}
-                    className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all opacity-0 group-hover/item:opacity-100"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-            {chargements.length === 0 && (
-              <p className="text-sm font-bold text-slate-400 text-center py-4 uppercase tracking-[0.2em]">Flux logistique vierge</p>
-            )}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[11px] border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-800">
+                    <th className="py-4 px-4 font-black uppercase text-slate-400 tracking-wider">Date/Heure</th>
+                    <th className="py-4 px-4 font-black uppercase text-slate-400 tracking-wider">Unité / EVP</th>
+                    <th className="py-4 px-4 font-black uppercase text-slate-400 tracking-wider">Vecteur / Camion</th>
+                    <th className="py-4 px-4 font-black uppercase text-slate-400 tracking-wider text-right">Coût Total</th>
+                    <th className="py-4 px-4 font-black uppercase text-slate-400 tracking-wider text-right">Avance Verse</th>
+                    <th className="py-4 px-4 font-black uppercase text-slate-400 tracking-wider text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                  {chargements.map(ch => (
+                    <tr key={ch.id} className="group/row hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors">
+                      <td className="py-4 px-4 font-bold text-slate-400 tabular-nums">
+                        {new Date(ch.dateChargement || ch.createdAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-2">
+                           <div className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                              <Box className="w-3 h-3 text-blue-500" />
+                           </div>
+                           <span className="font-black text-slate-900 dark:text-white uppercase">{ch.numeroConteneur || "N/A"}</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-2">
+                           <Truck className="w-3.5 h-3.5 text-slate-400" />
+                           <span className="font-bold text-slate-600 dark:text-slate-300">
+                             {ch.typeTransporteur === 'interne' 
+                               ? (camions.find(c => c.id === ch.camionId)?.numero || ch.camionId || "Flotte") 
+                               : `Prest: ${ch.nomTransporteurExterne || "N/A"}`}
+                           </span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4 text-right">
+                        <div className="flex justify-end">
+                          <EditableAmount 
+                            value={ch.prixTotal} 
+                            onChange={async (val) => {
+                              try {
+                                await updateDoc(doc(db, "chargements", ch.id), { 
+                                  prixTotal: val,
+                                  solde: val - (ch.avance || 0),
+                                  updatedAt: new Date().toISOString()
+                                });
+                              } catch (err) {
+                                handleFirestoreError(err, OperationType.UPDATE, `chargements/${ch.id}`);
+                              }
+                            }}
+                          />
+                        </div>
+                      </td>
+                      <td className="py-4 px-4 text-right">
+                        <div className="flex justify-end">
+                          <EditableAmount 
+                            value={ch.avance}
+                            highlightColor="text-emerald-500"
+                            onChange={async (val) => {
+                              try {
+                                await updateDoc(doc(db, "chargements", ch.id), { 
+                                  avance: val,
+                                  solde: (ch.prixTotal || 0) - val,
+                                  updatedAt: new Date().toISOString()
+                                });
+                              } catch (err) {
+                                handleFirestoreError(err, OperationType.UPDATE, `chargements/${ch.id}`);
+                              }
+                            }}
+                          />
+                        </div>
+                      </td>
+                      <td className="py-4 px-4 text-right">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteChargementData({ id: ch.id, conteneurId: ch.conteneurId });
+                          }}
+                          className="p-2 text-rose-500 hover:bg-rose-500 hover:text-white border border-rose-500/10 rounded-lg transition-all"
+                          title="Supprimer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {chargements.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-10 text-center text-slate-400 font-bold uppercase tracking-widest text-[10px]">
+                        Flux logistique vierge
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -573,7 +777,53 @@ function DossierCard({ dossier, camions }: DossierCardProps) {
   );
 }
 
+function EditableAmount({ value, onChange, highlightColor = "text-slate-900 dark:text-white" }: { value: number, onChange: (val: number) => void, highlightColor?: string }) {
+  const { settings } = useSettings();
+  const [isEditing, setIsEditing] = useState(false);
+  const [val, setVal] = useState(value);
+
+  if (isEditing) {
+    return (
+      <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+        <input 
+          type="number"
+          autoFocus
+          className="w-24 bg-blue-50 dark:bg-blue-900/30 border border-blue-500/50 rounded-lg px-2 py-1.5 text-xs font-black outline-none shadow-inner"
+          value={val}
+          onFocus={e => e.target.select()}
+          onChange={e => setVal(parseInt(e.target.value) || 0)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              onChange(val);
+              setIsEditing(false);
+            }
+            if (e.key === 'Escape') {
+              setVal(value);
+              setIsEditing(false);
+            }
+          }}
+        />
+        <button onClick={() => { onChange(val); setIsEditing(false); }} className="p-1.5 bg-emerald-500 text-white rounded-lg shadow-sm">
+          <Check className="w-3 h-3" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-end group/btn cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}>
+       <div className="flex items-center gap-1.5 py-1 px-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all">
+         <p className={`font-black text-xs tabular-nums transition-colors ${highlightColor}`}>
+           {value?.toLocaleString()} {settings.devise}
+         </p>
+         <Edit2 className="w-2.5 h-2.5 text-blue-500" />
+       </div>
+    </div>
+  );
+}
+
 function AddChargementModal({ dossier, camions: externalCamions }: { dossier: any; camions?: any[] }) {
+  const { settings } = useSettings();
   const [open, setOpen] = useState(false);
   const [localCamions, setLocalCamions] = useState<any[]>([]);
   const camions = externalCamions || localCamions;
@@ -699,11 +949,11 @@ function AddChargementModal({ dossier, camions: externalCamions }: { dossier: an
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Prix Total / Engagement (FCFA)</label>
+              <label className="block text-sm font-medium mb-1">Prix Total / Engagement ({settings.devise})</label>
               <input required type="number" min="0" className="w-full border rounded-lg px-3 py-2" value={form.prixTotal} onChange={e => setForm({...form, prixTotal: parseInt(e.target.value) || 0})} />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Avance / Provision (FCFA)</label>
+              <label className="block text-sm font-medium mb-1">Avance / Provision ({settings.devise})</label>
               <input required type="number" min="0" className="w-full border rounded-lg px-3 py-2" value={form.avance} onChange={e => setForm({...form, avance: parseInt(e.target.value) || 0})} />
             </div>
           </div>

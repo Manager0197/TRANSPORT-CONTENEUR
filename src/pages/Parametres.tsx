@@ -16,14 +16,44 @@ export default function Parametres() {
   const [partners, setPartners] = useState<any[]>([]);
   const [newPartner, setNewPartner] = useState("");
 
+  const [isSaving, setIsSaving] = useState(false);
+
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "partenaires"), (snap) => {
+    // Load config from Firestore
+    const unsub = onSnapshot(doc(db, "settings", "global"), (snap) => {
+      if (snap.exists()) {
+        setConfig(snap.data() as any);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, "settings/global");
+    });
+
+    const unsubPartners = onSnapshot(collection(db, "partenaires"), (snap) => {
       setPartners(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, "partenaires");
     });
-    return () => unsub();
+    return () => {
+      unsub();
+      unsubPartners();
+    };
   }, []);
+
+  const handleSaveConfig = async () => {
+    setIsSaving(true);
+    try {
+      const { setDoc, doc } = await import("firebase/firestore");
+      await setDoc(doc(db, "settings", "global"), {
+        ...config,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      alert("Configuration sauvegardée avec succès !");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, "settings/global");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleAddPartner = async () => {
     if (!newPartner) return;
@@ -192,8 +222,12 @@ export default function Parametres() {
              <p className="text-slate-400 font-medium">Synchronisation des paramètres avec le moteur comptable</p>
           </div>
         </div>
-        <button className="bg-white text-slate-900 px-12 py-5 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-slate-100 transition-all active:scale-95 shadow-xl shadow-white/10 relative z-10">
-          Soumettre les modifications
+        <button 
+          onClick={handleSaveConfig}
+          disabled={isSaving}
+          className="bg-white text-slate-900 px-12 py-5 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-slate-100 transition-all active:scale-95 shadow-xl shadow-white/10 relative z-10 disabled:opacity-50"
+        >
+          {isSaving ? "Enregistrement..." : "Soumettre les modifications"}
         </button>
       </div>
     </div>

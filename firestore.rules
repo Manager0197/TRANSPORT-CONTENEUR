@@ -2,119 +2,143 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    
     // ===============================================================
-    // Helper Functions
+    // CATCH-ALL DEFAULT DENY
     // ===============================================================
-    function isAuthenticated() {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // GLOBAL HELPERS
+    // ===============================================================
+    function isSignedIn() {
       return request.auth != null;
     }
 
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
     function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return isSignedIn() && request.auth.uid == userId;
     }
 
+    // Admin lookup supports both hardcoded email (bootstrap) and administrative collection
     function isAdmin() {
-      return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "management250197@gmail.com" && request.auth.token.email_verified == true)); // Default admin
+      return isSignedIn() && (
+        request.auth.token.email == "management250197@gmail.com" || 
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
     }
 
-    function hasRequiredFields(fields) {
-      return request.resource.data.keys().hasAll(fields);
+    function incoming() {
+      return request.resource.data;
     }
 
-    function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     // ===============================================================
-    // Domain Validators
+    // VALIDATION BLUEPRINTS
     // ===============================================================
-    
+
     function isValidDossier(data) {
-      return hasRequiredFields(['numeroBL', 'statut']) &&
-             data.numeroBL is string && data.numeroBL.size() > 0 && data.numeroBL.size() < 50 &&
+      return data.keys().hasAll(['numeroBL', 'statut']) &&
+             data.numeroBL is string && data.numeroBL.size() > 0 && data.numeroBL.size() < 100 &&
              data.statut in ['en_cours', 'cloture'] &&
-             (!('nbConteneurs' in data) || (data.nbConteneurs is number && data.nbConteneurs >= 0)) &&
-             (!('prixContrat' in data) || (data.prixContrat is number && data.prixContrat >= 0));
+             (!('nbConteneurs' in data) || (data.nbConteneurs is number)) &&
+             (!('prixContrat' in data) || (data.prixContrat is number));
     }
 
     function isValidConteneur(data) {
-      return hasRequiredFields(['numero', 'dossierId']) &&
-             data.numero is string && data.numero.size() > 0 && data.numero.size() < 50 &&
-             data.dossierId is string && data.dossierId.size() < 100;
-    }
-
-    function isValidCamion(data) {
-      return hasRequiredFields(['numero', 'statut']) &&
-             data.numero is string && data.numero.size() > 0 && data.numero.size() < 50 &&
-             data.statut in ['actif', 'inactif'];
+      return data.keys().hasAll(['numero', 'dossierId']) &&
+             data.numero is string && data.numero.size() > 0 &&
+             data.dossierId is string && isValidId(data.dossierId);
     }
 
     function isValidChargement(data) {
-      return hasRequiredFields(['dossierId', 'conteneurId', 'typeTransporteur', 'statutPaiement']) &&
-             data.dossierId is string && data.dossierId.size() < 100 &&
-             data.conteneurId is string && data.conteneurId.size() < 100 &&
+      return data.keys().hasAll(['dossierId', 'conteneurId', 'typeTransporteur', 'statutPaiement']) &&
+             data.dossierId is string && isValidId(data.dossierId) &&
+             data.conteneurId is string && isValidId(data.conteneurId) &&
              data.typeTransporteur in ['interne', 'externe'] &&
              data.statutPaiement in ['non_paye', 'paye'] &&
-             (!('avance' in data) || (data.avance is number && data.avance >= 0)) &&
-             (!('prixTotal' in data) || (data.prixTotal is number && data.prixTotal >= 0)) &&
-             (!('solde' in data) || (data.solde is number && data.solde >= 0)) &&
-             (!('nomTransporteurExterne' in data) || (data.nomTransporteurExterne is string && data.nomTransporteurExterne.size() < 100));
+             (!('avance' in data) || (data.avance is number)) &&
+             (!('prixTotal' in data) || (data.prixTotal is number)) &&
+             (!('solde' in data) || (data.solde is number));
     }
 
     function isValidPartenaire(data) {
-      return hasRequiredFields(['nom']) &&
-             data.nom is string && data.nom.size() > 0 && data.nom.size() < 100;
+      return data.keys().hasAll(['nom']) &&
+             data.nom is string && data.nom.size() > 0;
+    }
+
+    function isValidCamion(data) {
+      return data.keys().hasAll(['numero', 'statut']) &&
+             data.numero is string && data.numero.size() > 0 &&
+             data.statut in ['actif', 'inactif'];
     }
 
     // ===============================================================
-    // Rules
+    // RESOURCE MATCHES
     // ===============================================================
-    
+
+    match /settings/global {
+      allow read: if true; // Publicly readable settings for initialization
+      allow write: if isAdmin();
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow write: if isOwner(userId) || isAdmin();
     }
 
     match /dossiers/{dossierId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidDossier(request.resource.data);
-      allow update: if isAuthenticated() && isValidDossier(request.resource.data);
-      allow delete: if isAdmin();
-    }
-    
-    match /conteneurs/{conteneurId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidConteneur(request.resource.data);
-      allow update: if isAuthenticated() && isValidConteneur(request.resource.data);
-      allow delete: if isAdmin();
-    }
-    
-    match /camions/{camionId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidCamion(request.resource.data);
-      allow update: if isAuthenticated() && isValidCamion(request.resource.data);
-      allow delete: if isAdmin();
-    }
-    
-    match /chargements/{chargementId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidChargement(request.resource.data);
-      allow update: if isAuthenticated() && isValidChargement(request.resource.data);
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidDossier(incoming());
+      allow update: if isSignedIn() && (isAdmin() || isValidDossier(incoming()));
       allow delete: if isAdmin();
     }
 
-    match /partenaires/{partenaireId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidPartenaire(request.resource.data);
-      allow update: if isAuthenticated() && isValidPartenaire(request.resource.data);
-      allow delete: if isAdmin();
+    match /conteneurs/{conteneurId} {
+       allow read: if isSignedIn();
+       allow create: if isSignedIn() && isValidConteneur(incoming());
+       allow update: if isSignedIn() && (isAdmin() || isValidConteneur(incoming()));
+       allow delete: if isAdmin();
     }
-    
-    match /config/global {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+
+    match /chargements/{chargementId} {
+       allow read: if isSignedIn();
+       allow create: if isSignedIn() && isValidChargement(incoming());
+       allow update: if isSignedIn() && (isAdmin() || isValidChargement(incoming()));
+       allow delete: if isAdmin();
+    }
+
+    match /camions/{camionId} {
+       allow read: if isSignedIn();
+       allow create: if isAdmin();
+       allow update: if isAdmin();
+       allow delete: if isAdmin();
+    }
+
+    match /partenaires/{partenaireId} {
+       allow read: if isSignedIn();
+       allow create: if isAdmin();
+       allow update: if isAdmin();
+       allow delete: if isAdmin();
+    }
+
+    // System-level admins collection for RBAC
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if false; // System-only managed
     }
   }
 }

@@ -4,7 +4,10 @@ import { db } from "../lib/firebase";
 import { Truck, FolderOpen, DollarSign, AlertCircle } from "lucide-react";
 import { handleFirestoreError, OperationType } from "../lib/firestore-error";
 
+import { useSettings } from "../hooks/useSettings";
+
 export default function Dashboard() {
+  const { settings } = useSettings();
   const [stats, setStats] = useState({
     dossiersActifs: 0,
     chargementsSemaine: 0,
@@ -75,7 +78,7 @@ export default function Dashboard() {
         />
         <StatCard 
           title="Créances à Solder" 
-          value={`${stats.montantDu.toLocaleString()} FCFA`} 
+          value={`${stats.montantDu.toLocaleString()} ${settings.devise}`} 
           icon={DollarSign} 
           color="bg-emerald-600" 
         />
@@ -99,7 +102,7 @@ function StatCard({ title, value, icon: Icon, color, highlight = false }: { titl
       </div>
       <div>
         <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] mb-1">{title}</p>
-        <p className="text-3xl font-black text-slate-900 dark:text-white tracking-tighter tabular-nums truncate">{value}</p>
+        <p className="text-xl font-black text-slate-900 dark:text-white tracking-tighter tabular-nums truncate">{value}</p>
       </div>
     </div>
   );

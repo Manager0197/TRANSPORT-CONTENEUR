@@ -5,10 +5,10 @@ import { cn } from "./lib/utils";
 import Dashboard from "./pages/Dashboard";
 import Dossiers from "./pages/Dossiers";
 import Conteneurs from "./pages/Conteneurs";
-import Camions from "./pages/Camions";
 import Finances from "./pages/Finances";
 import Rapports from "./pages/Rapports";
 import Parametres from "./pages/Parametres";
+import PortailOperations from "./pages/PortailOperations";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Settings } from "lucide-react";
@@ -37,7 +37,6 @@ function Sidebar({ isOpen, setIsOpen, logOut, user, theme, toggleTheme }: { isOp
     { path: "/", label: "Dashboard", icon: LayoutDashboard },
     { path: "/dossiers", label: "Dossiers BL", icon: FolderOpen },
     { path: "/conteneurs", label: "Inventaire EVP", icon: Box },
-    { path: "/camions", label: "Flotte Interne", icon: Truck },
     { path: "/finances", label: "Flux Trésorerie", icon: DollarSign },
     { path: "/rapports", label: "Executive Board", icon: FileBarChart },
     { path: "/parametres", label: "Configuration", icon: Settings },
@@ -125,7 +124,6 @@ function BottomNav() {
     { path: "/", short: "Home", icon: LayoutDashboard },
     { path: "/dossiers", short: "Dossiers", icon: FolderOpen },
     { path: "/conteneurs", short: "Unités", icon: Box },
-    { path: "/camions", short: "Flotte", icon: Truck },
     { path: "/finances", short: "Finances", icon: DollarSign },
   ];
 
@@ -168,7 +166,7 @@ function AppContent() {
       await signInEmail(loginForm.username, loginForm.password);
     } catch (err: any) {
       if (err.code === "auth/user-not-found" || err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
-        setLoginError("Identifiants incorrects (admin / 123456)");
+        setLoginError("Identifiants incorrects (admin ou transporteur / 123456)");
       } else if (err.code === "auth/operation-not-allowed") {
         setLoginError("Connexion par email non activée sur Firebase");
       } else {
@@ -220,7 +218,7 @@ function AppContent() {
             <div className="space-y-2">
               <input 
                 type="text" 
-                placeholder="Nom d'utilisateur (ex: admin)"
+                placeholder="Identifiant (admin ou transporteur)"
                 className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-2xl px-6 py-4 text-slate-900 dark:text-white font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-400"
                 value={loginForm.username}
                 onChange={e => setLoginForm({...loginForm, username: e.target.value})}
@@ -267,11 +265,20 @@ function AppContent() {
           </button>
           
           <p className="mt-10 text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-600">
-            Session de démonstration active • Chiffrement 256-bit
+            Démos : admin / 123456 | flotte / 123456 | transporteur / 123456
           </p>
         </div>
       </div>
     );
+  }
+
+  // Intercept the transporteur route
+  if (user.email === 'transporteur@translog-pro.com' || user.email === 'flotte@translog-pro.com') {
+    return (
+      <ErrorBoundary>
+        <PortailOperations />
+      </ErrorBoundary>
+    )
   }
 
   return (
@@ -290,7 +297,6 @@ function AppContent() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/dossiers" element={<Dossiers />} />
               <Route path="/conteneurs" element={<Conteneurs />} />
-              <Route path="/camions" element={<Camions />} />
               <Route path="/finances" element={<Finances />} />
               <Route path="/rapports" element={<Rapports />} />
               <Route path="/parametres" element={<Parametres />} />
@@ -303,11 +309,15 @@ function AppContent() {
   );
 }
 
+import { SettingsProvider } from "./hooks/useSettings";
+
 export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <AppContent />
+        <SettingsProvider>
+          <AppContent />
+        </SettingsProvider>
       </AuthProvider>
     </ErrorBoundary>
   );

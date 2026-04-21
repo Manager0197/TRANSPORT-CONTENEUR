@@ -22,8 +22,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Check for demo session first
-    const isDemo = localStorage.getItem('auth_demo_session') === 'true';
-    if (isDemo) {
+    const demoSessionType = localStorage.getItem('auth_demo_session');
+    if (demoSessionType === 'admin' || demoSessionType === 'true') {
       setUser({
         email: "admin@translog-pro.com",
         uid: "demo-admin-uid",
@@ -31,10 +31,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         emailVerified: true,
       } as User);
       setLoading(false);
+    } else if (demoSessionType === 'flotte') {
+      setUser({
+        email: "flotte@translog-pro.com",
+        uid: "demo-fleet-uid",
+        displayName: "Gestionnaire Flotte",
+        emailVerified: true,
+      } as User);
+      setLoading(false);
+    } else if (demoSessionType === 'transporteur') {
+      setUser({
+        email: "transporteur@translog-pro.com",
+        uid: "demo-carrier-uid",
+        displayName: "Transporteur Partenaire",
+        emailVerified: true,
+      } as User);
+      setLoading(false);
     }
 
     const unsubscribe = onAuthStateChanged(auth, (u) => {
-      if (!isDemo) {
+      const demoSessionType = localStorage.getItem('auth_demo_session');
+      if (!demoSessionType) {
         setUser(u);
         setLoading(false);
       }
@@ -62,7 +79,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         emailVerified: true,
       } as User);
       setLoading(false);
-      localStorage.setItem('auth_demo_session', 'true');
+      localStorage.setItem('auth_demo_session', 'admin');
+      return;
+    }
+
+    if (email === "flotte" && pass === "123456") {
+      setUser({
+        email: "flotte@translog-pro.com",
+        uid: "demo-fleet-uid",
+        displayName: "Gestionnaire Flotte",
+        emailVerified: true,
+      } as User);
+      setLoading(false);
+      localStorage.setItem('auth_demo_session', 'flotte');
+      return;
+    }
+
+    if (email === "transporteur" && pass === "123456") {
+      setUser({
+        email: "transporteur@translog-pro.com",
+        uid: "demo-carrier-uid",
+        displayName: "Transporteur Partenaire",
+        emailVerified: true,
+      } as User);
+      setLoading(false);
+      localStorage.setItem('auth_demo_session', 'transporteur');
       return;
     }
 

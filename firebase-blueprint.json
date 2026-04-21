@@ -69,8 +69,26 @@
       },
       "required": ["nom", "createdAt"]
     }
+    "GlobalSettings": {
+      "title": "GlobalSettings",
+      "description": "Paramètres globaux de l'application (devise, TVA, etc.)",
+      "type": "object",
+      "properties": {
+        "devise": { "type": "string" },
+        "tva": { "type": "number" },
+        "prix20": { "type": "number" },
+        "prix40": { "type": "number" },
+        "surcharge": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["devise", "tva", "prix20", "prix40"]
+    }
   },
   "firestore": {
+    "/settings/global": {
+      "schema": "GlobalSettings",
+      "description": "Document unique des paramètres globaux"
+    },
     "/dossiers/{dossierId}": {
       "schema": "DossierBL",
       "description": "Collection des dossiers BL"
